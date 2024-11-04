@@ -6,8 +6,15 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import ShipStore from './ShipStore.js';
+import boxship3Url from './3boxship.glb?url';
+import bluruDestroyerUrl from './blurudestroyer.glb?url';
+import submarineUrl from './submarine.glb?url';
+import bigShipUrl from './bigShip.glb?url';
+import maritimeDroneUrl from './maritimedrone.glb?url';
 
-// Scene, Camera, Renderer setup remains the same
+const occupiedCoordinates = {};
+let previousPosition = null;
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(
   75,
@@ -22,14 +29,14 @@ renderer.toneMappingExposure = 0.5;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
-// Add these variables at the top of your file, after other declarations
+
 let selectedShip = null;
 let isDragging = false;
 let isRightMouseDown = false;
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
 
-// Post-processing setup remains the same
+
 const composer = new EffectComposer(renderer);
 const renderPass = new RenderPass(scene, camera);
 composer.addPass(renderPass);
@@ -74,10 +81,10 @@ let ship, submarine;
 const loader = new GLTFLoader();
 
 loader.load(
-  'bigShip.glb',
+  bigShipUrl,
   function (gltf) {
     const bigship = gltf.scene;
-
+    bigship.userData.modelPath = 'bigShip2.glb';
     // Set scale to fit within three grid boxes
     const desiredWidth = (boxSize * 3) / 6; // Occupy 3 grid boxes
     const bbox = new THREE.Box3().setFromObject(bigship);
@@ -112,10 +119,10 @@ loader.load(
 );
 
 loader.load(
-  'blurudestroyer.glb',
+  bluruDestroyerUrl,
   function (gltf) {
     const bldestroyer = gltf.scene;
-
+    bldestroyer.userData.modelPath = 'blurudestroyer.glb';
     // Set scale to fit within three grid boxes
     const desiredWidth = (boxSize * 3) / 7.5; // Occupy 3 grid boxes
     const bbox = new THREE.Box3().setFromObject(bldestroyer);
@@ -137,8 +144,9 @@ loader.load(
     enhanceModelMaterials(bldestroyer);
     ships.push(bldestroyer);
     scene.add(bldestroyer);
-    markPositionAsOccupied(bldestroyer);
+
     bldestroyer.rotation.y += Math.PI / 2;
+    markPositionAsOccupied(bldestroyer);
   },
   function (xhr) {
     console.log(
@@ -152,10 +160,10 @@ loader.load(
 
 const occupiedPositions = new Set();
 loader.load(
-  'submarine.glb',
+  submarineUrl,
   function (gltf) {
     const submarine = gltf.scene;
-
+    submarine.userData.modelPath = 'submarine.glb';
     // Set scale to fit within three grid boxes
     const desiredWidth = (boxSize * 3) / 8; // Occupy 3 grid boxes
     const bbox = new THREE.Box3().setFromObject(submarine);
@@ -190,10 +198,10 @@ loader.load(
 );
 
 loader.load(
-  '3boxship.glb', // Path to the new GLB file
+  boxship3Url, // Path to the new GLB file
   function (gltf) {
     const boxShip = gltf.scene;
-
+    boxShip.userData.modelPath = '3boxship.glb';
     // Set scale to fit within three grid boxes
     const desiredWidth = boxSize * 3; // Occupy 3 grid boxes
     const bbox = new THREE.Box3().setFromObject(boxShip);
@@ -229,10 +237,10 @@ loader.load(
 
 // Load Maritime Drone
 loader.load(
-  'maritimedrone.glb',
+  maritimeDroneUrl,
   function (gltf) {
     const maritimeDrone = gltf.scene;
-
+    maritimeDrone.userData.modelPath = 'maritimedrone.glb';
     // Set scale to fit within three grid boxes
     const desiredWidth = (boxSize * 3) / 4; // Occupy 3 grid boxes
     const bbox = new THREE.Box3().setFromObject(maritimeDrone);
@@ -242,17 +250,27 @@ loader.load(
     maritimeDrone.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
     // Position maritime drone in the first row, perpendicular to other ships
-    maritimeDrone.position.set(
+    const dronePosition = new THREE.Vector3(
       -gridSize / 6 + boxSize * 1.5,
       -5,
       -gridSize / 7 + boxSize / 1.5
     );
 
-    maritimeDrone.rotation.y = 0;
+    // Snap the position to the grid
+    const snappedPosition = snapToGrid(dronePosition);
+    maritimeDrone.position.copy(snappedPosition);
+
+    maritimeDrone.rotation.y = Math.PI / 2;
     maritimeDrone.userData.isShip = true;
     enhanceModelMaterials(maritimeDrone);
+
+    // Add the maritime drone to the ships array
+    ships.push(maritimeDrone);
+
     scene.add(maritimeDrone);
-    maritimeDrone.rotation.y += Math.PI / 2;
+
+    // Mark the position as occupied
+    markPositionAsOccupied(maritimeDrone);
   },
   function (xhr) {
     console.log(
@@ -284,7 +302,7 @@ const glowFragmentShader = `
 `;
 
 function initializeOccupiedPositions() {
-  ships.forEach((ship) => markPositionAsOccupied(ship));
+  ships.forEach(ship => markPositionAsOccupied(ship));
 }
 
 // Call this function after loading all ships
@@ -435,29 +453,75 @@ controls.mouseButtons = {
 
 function snapToGrid(position) {
   const halfBoxSize = boxSize / 2;
+  const halfGridSize = gridSize / 2;
+
+  // Clamp the position within the grid bounds
+  const clampedX = Math.max(-halfGridSize + halfBoxSize, Math.min(halfGridSize - halfBoxSize, position.x));
+  const clampedZ = Math.max(-halfGridSize + halfBoxSize, Math.min(halfGridSize - halfBoxSize, position.z));
+
   return new THREE.Vector3(
-    Math.round((position.x - halfBoxSize) / boxSize) * boxSize + halfBoxSize,
+    Math.round((clampedX - halfBoxSize) / boxSize) * boxSize + halfBoxSize,
     position.y,
-    Math.round((position.z - halfBoxSize) / boxSize) * boxSize + halfBoxSize
+    Math.round((clampedZ - halfBoxSize) / boxSize) * boxSize + halfBoxSize
   );
 }
 
 // Function to check if position is within grid bounds
-function isWithinGridBounds(position) {
+function isWithinGridBounds(position, ship) {
   const halfGridSize = gridSize / 2;
+  const bbox = new THREE.Box3().setFromObject(ship);
+  const shipHalfWidth = (bbox.max.x - bbox.min.x) / 2;
+  const shipHalfLength = (bbox.max.z - bbox.min.z) / 2;
+
   return (
-    Math.abs(position.x) < halfGridSize && Math.abs(position.z) < halfGridSize
+    position.x - shipHalfWidth >= -halfGridSize &&
+    position.x + shipHalfWidth <= halfGridSize &&
+    position.z - shipHalfLength >= -halfGridSize &&
+    position.z + shipHalfLength <= halfGridSize
   );
 }
-
-function markPositionAsOccupied(ship) {
-  const position = snapToGrid(ship.position);
-  occupiedPositions.add(`${position.x},${position.z}`);
+function getShipSize(ship) {
+  const bbox = new THREE.Box3().setFromObject(ship);
+  const size = bbox.getSize(new THREE.Vector3());
+  const center = bbox.getCenter(new THREE.Vector3());
+  return {
+    width: Math.round(size.x / boxSize),
+    length: Math.round(size.z / boxSize),
+    centerOffsetX: center.x - ship.position.x,
+    centerOffsetZ: center.z - ship.position.z
+  };
 }
 
-function isPositionOccupied(position) {
+// Function to check if a position is occupied
+function isPositionOccupied(position, shipSize = 1) {
   const snappedPosition = snapToGrid(position);
-  return occupiedPositions.has(`${snappedPosition.x},${snappedPosition.z}`);
+  for (let i = 0; i < shipSize; i++) {
+    const key = `${snappedPosition.x},${snappedPosition.z + i * boxSize}`;
+    if (occupiedCoordinates[key] && occupiedCoordinates[key] !== selectedShip) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Function to mark a position as occupied
+function markPositionAsOccupied(ship) {
+  const position = snapToGrid(ship.position);
+  const shipSize = getShipSize(ship);
+  for (let i = 0; i < shipSize.length; i++) {
+    const key = `${position.x},${position.z + i * boxSize}`;
+    occupiedCoordinates[key] = ship;
+  }
+}
+
+// Function to remove a ship from occupied positions
+function removeShipFromOccupiedPositions(ship) {
+  const position = snapToGrid(ship.position);
+  const shipSize = getShipSize(ship);
+  for (let i = 0; i < shipSize.length; i++) {
+    const key = `${position.x},${position.z + i * boxSize}`;
+    delete occupiedCoordinates[key];
+  }
 }
 // Add these event listeners after setting up OrbitControls
 renderer.domElement.addEventListener('mousedown', onMouseDown, false);
@@ -470,14 +534,15 @@ renderer.domElement.addEventListener(
 );
 window.addEventListener('keydown', onKeyDown, false);
 
+
+
 function onMouseDown(event) {
-  if (event.button === 2) {
-    // Right mouse button
+  if (event.button === 2) { // Right mouse button
     event.preventDefault();
     isRightMouseDown = true;
 
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+    mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
 
     raycaster.setFromCamera(mouse, camera);
 
@@ -489,12 +554,22 @@ function onMouseDown(event) {
         object = object.parent;
       }
       if (object.userData && object.userData.isShip) {
+        // If there was a previously selected ship, unhighlight it
+        if (selectedShip) {
+          unhighlightShip(selectedShip);
+        }
         selectedShip = object;
+        previousPosition = selectedShip.position.clone();
+        removeShipFromOccupiedPositions(selectedShip);
         highlightShip(selectedShip);
         isDragging = true;
       }
     } else {
-      selectedShip = null;
+      // If clicking outside of any ship, unhighlight the previously selected ship
+      if (selectedShip) {
+        unhighlightShip(selectedShip);
+        selectedShip = null;
+      }
     }
   }
 }
@@ -509,29 +584,15 @@ function onMouseMove(event) {
 
     if (intersects.length > 0) {
       const newPosition = snapToGrid(intersects[0].point);
-      // Constrain movement within the grid
-      newPosition.x = Math.max(
-        -gridSize / 2,
-        Math.min(gridSize / 2, newPosition.x)
-      );
-      newPosition.z = Math.max(
-        -gridSize / 2,
-        Math.min(gridSize / 2, newPosition.z)
-      );
-      selectedShip.position.set(
-        newPosition.x,
-        selectedShip.position.y,
-        newPosition.z
-      );
 
-      if (isWithinGridBounds(newPosition) && !isPositionOccupied(newPosition)) {
+      // Check if the new position is within grid bounds
+      if (isWithinGridBounds(newPosition, selectedShip) && !isPositionOccupied(newPosition, getShipSize(selectedShip).length)) {
         // Remove the ship from its current position
-        occupiedPositions.delete(
-          `${selectedShip.position.x},${selectedShip.position.z}`
-        );
+        removeShipFromOccupiedPositions(selectedShip);
+
         // Update the ship's position
-        selectedShip.position.x = newPosition.x;
-        selectedShip.position.z = newPosition.z;
+        selectedShip.position.set(newPosition.x, selectedShip.position.y, newPosition.z);
+
         // Mark the new position as occupied
         markPositionAsOccupied(selectedShip);
       }
@@ -539,20 +600,55 @@ function onMouseMove(event) {
   }
 }
 
+
+
 function onKeyDown(event) {
   if (event.code === 'Space' && selectedShip) {
-    // Rotate the selected ship by 90 degrees clockwise
+    // Store the original rotation and position
+    const originalRotation = selectedShip.rotation.y;
+    const originalPosition = selectedShip.position.clone();
+
+    // Temporarily rotate the ship
     selectedShip.rotation.y -= Math.PI / 2;
+
+    // Get the new bounding box after rotation
+    const bbox = new THREE.Box3().setFromObject(selectedShip);
+    const shipSize = {
+      width: Math.round((bbox.max.x - bbox.min.x) / boxSize),
+      length: Math.round((bbox.max.z - bbox.min.z) / boxSize)
+    };
+
+    // Check if the rotated ship is within bounds
+    const isWithinBounds = isWithinGridBounds(selectedShip.position, selectedShip);
+
+    // Check for collisions with other ships
+    const hasCollision = checkShipOverlap(selectedShip);
+
+    if (isWithinBounds && !hasCollision) {
+      // If rotation is valid, update occupied positions
+      removeShipFromOccupiedPositions(selectedShip);
+      markPositionAsOccupied(selectedShip);
+    } else {
+      // If rotation is not valid, revert to original rotation and position
+      selectedShip.rotation.y = originalRotation;
+      selectedShip.position.copy(originalPosition);
+      alert("Invalid rotation. The ship would go outside the grid or collide with another ship.");
+    }
   }
 }
 
+
 function onMouseUp(event) {
-  if (event.button === 2) {
-    // Right mouse button
+  if (event.button === 2) { // Right mouse button
     isRightMouseDown = false;
     isDragging = false;
     if (selectedShip) {
-      unhighlightShip(selectedShip);
+      if (checkShipOverlap(selectedShip)) {
+        alert("Invalid placement. Ships cannot overlap.");
+        selectedShip.position.copy(previousPosition);
+      }
+      markPositionAsOccupied(selectedShip);
+      unhighlightShip(selectedShip); // Ensure the ship is unhighlighted
       selectedShip = null;
       isRotating = false;
     }
@@ -688,11 +784,35 @@ function createOverlay() {
   document.body.appendChild(overlay);
 
   confirmButton.addEventListener('click', () => {
+    ShipStore.saveShips(ships);
     console.log('Confirm button clicked');
     window.location.href = 'game2.html';
   });
 }
-
+function getShipPositions() {
+  return {
+    bigship: {
+      position: bigship.position.clone(),
+      size: getShipSize(bigship)
+    },
+    bldestroyer: {
+      position: bldestroyer.position.clone(),
+      size: getShipSize(bldestroyer)
+    },
+    submarine: {
+      position: submarine.position.clone(),
+      size: getShipSize(submarine)
+    },
+    boxShip: {
+      position: boxShip.position.clone(),
+      size: getShipSize(boxShip)
+    },
+    maritimeDrone: {
+      position: maritimeDrone.position.clone(),
+      size: getShipSize(maritimeDrone)
+    }
+  };
+}
 // Call this function after setting up your Three.js scene
 createOverlay();
 

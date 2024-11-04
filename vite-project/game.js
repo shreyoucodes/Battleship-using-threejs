@@ -4,6 +4,11 @@ import { Water } from 'three/examples/jsm/objects/Water.js';
 import { Sky } from 'three/examples/jsm/objects/Sky.js';
 import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry.js';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
+import ShipStore from './ShipStore.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import FireBall from './FireBall.js';
+let enemyText;
+
 
 // Scene, Camera, Renderer setup
 const scene = new THREE.Scene();
@@ -14,17 +19,18 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.5;
 document.body.appendChild(renderer.domElement);
 
-camera.position.set(0, 200, 400);
+camera.position.set(-100, 200, 400);
 camera.lookAt(0, 0, 0);
 
 // Orbit Controls
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
-controls.dampingFactor = 0.05;
+controls.dampingFactor = 0.05;  // Reduced from 0.05 for smoother movement
 controls.screenSpacePanning = true;
 controls.minDistance = 50;
-controls.maxDistance = 500;
+controls.maxDistance = 800;    // Increased from 500 for more zoom out range
 controls.maxPolarAngle = Math.PI / 2;
+controls.rotateSpeed = 0.5; 
 
 // Lighting
 const ambientLight = new THREE.AmbientLight(0x404040, 1.0);
@@ -122,12 +128,13 @@ function createGrid(size, divisions, color) {
     return gridGroup;
 }
 
+
 // Create grids with 8x8 divisions
-const smallGrid = createGrid(200, 8, 0x000000);
+const smallGrid = createGrid(400, 8, 0x000000);
 smallGrid.position.set(150, 0, 0);  // Moved to the right
 
-const largeGrid = createGrid(300, 8, 0x000000);
-largeGrid.position.set(-150, 0, 0);  // Moved to the left
+const largeGrid = createGrid(400, 8, 0x000000);
+largeGrid.position.set(-330, 0, 0);  // Moved to the left
 
 // Add grids to the scene
 scene.add(smallGrid);
@@ -135,6 +142,8 @@ scene.add(largeGrid);
 
 // Create grid squares for selection
 function createGridSquares() {
+    const gridSize = 400; // Match the new grid size
+    const boxSize = gridSize / divisions;
     for (let i = 0; i < divisions; i++) {
         for (let j = 0; j < divisions; j++) {
             const squareGeometry = new THREE.PlaneGeometry(boxSize, boxSize);
@@ -147,7 +156,7 @@ function createGridSquares() {
             const square = new THREE.Mesh(squareGeometry, squareMaterial);
             square.rotation.x = -Math.PI / 2;
             square.position.set(
-                (i - divisions / 2 + 0.5) * boxSize - 150,
+                (i - divisions / 2 + 0.5) * boxSize - 330,
                 0.2,
                 (j - divisions / 2 + 0.5) * boxSize
             );
@@ -167,7 +176,7 @@ function onMouseMove(event) {
 }
 
 // Mouse click event handler
-function onMouseClick(event) {
+async function onMouseClick(event) {
     if (event.button !== 0) return;
 
     mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -180,6 +189,8 @@ function onMouseClick(event) {
         selectedSquare.material.color.setHex(0xffffff);
         selectedSquare.material.opacity = 0.5;
         selectedSquare.visible = true;
+        const fireball = new FireBall(scene, selectedSquare.position, boxSize);
+
     }
 }
 
@@ -193,21 +204,41 @@ loader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', 
     const textGeometry = new TextGeometry('Enemy Coordinates', {
         font: font,
         size: 20,
-        height: 5,
+        height: 2,
         curveSegments: 12,
-        bevelEnabled: false
+        bevelEnabled: true,
+        bevelThickness: 0.5,
+        bevelSize: 0.3,
+        bevelSegments: 3
     });
 
-    const textMaterial = new THREE.MeshPhongMaterial({ color: 0xffffff }); // White color
-    const textMesh = new THREE.Mesh(textGeometry, textMaterial);
+    // Center the text geometry
+    textGeometry.computeBoundingBox();
+    const centerOffset = new THREE.Vector3();
+    centerOffset.x = -(textGeometry.boundingBox.max.x - textGeometry.boundingBox.min.x) / 2;
+    textGeometry.translate(centerOffset.x, 0, 0);
 
-    // Position the text above the large grid, moved slightly back
-    textMesh.position.set(-280, 20, -200);
-    textMesh.rotation.x = -Math.PI / 4;  // Tilt the text for better visibility
+    // Create material with emissive properties for better visibility
+    const textMaterial = new THREE.MeshPhongMaterial({ 
+        color: 0x000000,
+        emissive: 0x444444,
+        side: THREE.DoubleSide,
+        flatShading: true
+    });
 
-    scene.add(textMesh);
+    // Create the text mesh
+    enemyText = new THREE.Mesh(textGeometry, textMaterial);
+    
+    // Create a container for the text that will handle positioning
+    const textContainer = new THREE.Group();
+    textContainer.add(enemyText);
+    
+    // Initial position - higher above water
+    textContainer.position.set(-350, 40, -230); // Increased y value to 40
+    
+    // Add container to scene
+    scene.add(textContainer);
 });
-
 // Create Battleship logo
 const logo = document.createElement('div');
 logo.textContent = 'BATTLESHIP';
@@ -233,15 +264,38 @@ function animate() {
     water.material.uniforms['time'].value += 1.0 / 60.0;
     controls.update();
 
-    // Update grid square visibility
+    // Update text rotation if it exists
+    if (enemyText) {
+        // Get camera position
+        const cameraPosition = camera.position;
+        
+        // Calculate angle to camera in XZ plane
+        const angleToCamera = Math.atan2(
+            cameraPosition.x - enemyText.parent.position.x,
+            cameraPosition.z - enemyText.parent.position.z
+        );
+
+        // Update text parent rotation
+        enemyText.parent.rotation.y = angleToCamera;
+        
+        // Maintain a constant upward tilt
+        enemyText.rotation.x = -Math.PI / 8;
+        
+        // Ensure text maintains height above water
+        enemyText.parent.position.y = 40;
+    }
+
+    // Rest of your existing animate code
     raycaster.setFromCamera(mouse, camera);
     const intersects = raycaster.intersectObjects(gridSquares);
+    
     gridSquares.forEach(square => {
         if (square.visible && square.material.color.getHex() !== 0xffffff) {
             square.material.opacity = 0.2;
             square.visible = false;
         }
     });
+    
     if (intersects.length > 0) {
         const hoveredSquare = intersects[0].object;
         if (hoveredSquare.material.color.getHex() !== 0xffffff) {
@@ -252,14 +306,46 @@ function animate() {
 
     renderer.render(scene, camera);
 }
-
 // Handle window resizing
 window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
 });
-
+function loadStoredShips() {
+    const loader = new GLTFLoader();
+    const shipData = ShipStore.getShips();
+    
+    shipData.forEach(shipInfo => {
+        loader.load(shipInfo.modelPath, (gltf) => {
+            const ship = gltf.scene;
+            
+            // Set position
+            ship.position.set(
+                shipInfo.position.x + 150,  // Offset to match small grid position
+                shipInfo.position.y,
+                shipInfo.position.z
+            );
+            
+            // Set rotation
+            ship.rotation.set(
+                shipInfo.rotation.x,
+                shipInfo.rotation.y,
+                shipInfo.rotation.z
+            );
+            
+            // Set scale
+            ship.scale.set(
+                shipInfo.scale.x,
+                shipInfo.scale.y,
+                shipInfo.scale.z
+            );
+            
+            scene.add(ship);
+        });
+    });
+}
+loadStoredShips();
 // Ensure proper initial render
 renderer.render(scene, camera);
 

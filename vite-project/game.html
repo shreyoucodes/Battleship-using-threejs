@@ -11,9 +11,25 @@
       canvas {
         display: block;
       }
+      #gameUI {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        font-family: Arial, sans-serif;
+      }
     </style>
   </head>
   <body>
+    <div id="gameUI">
+      <div id="status">Waiting for opponent...</div>
+    </div>
+
+    <!-- Import Three.js and Socket.IO from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.161.0/three.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.js"></script>
+
+    <!-- Game script -->
     <script type="module" src="main.js"></script>
   </body>
 </html>
