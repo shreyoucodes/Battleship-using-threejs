@@ -83,7 +83,7 @@ loader.load(
   bigShipUrl,
   function (gltf) {
     const bigship = gltf.scene;
-    bigship.userData.modelPath = 'bigShip.glb';
+    bigship.userData.modelPath = 'bigShip2.glb';
     // Set scale to fit within three grid boxes
     const desiredWidth = (boxSize * 3) / 6; // Occupy 3 grid boxes
     const bbox = new THREE.Box3().setFromObject(bigship);
