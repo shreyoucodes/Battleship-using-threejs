@@ -23,7 +23,7 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 0.5;
 document.body.appendChild(renderer.domElement);
 
-camera.position.set(10, 300, 370);
+camera.position.set(0, 270, 450);
 camera.lookAt(0, 0, 0);
 
 // Orbit Controls

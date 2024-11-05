@@ -48,7 +48,7 @@ const bloomPass = new UnrealBloomPass(
 );
 composer.addPass(bloomPass);
 
-camera.position.set(0, 200, 400);
+camera.position.set(0, 200, 300);
 camera.lookAt(0, 0, 0);
 
 // Grid settings
